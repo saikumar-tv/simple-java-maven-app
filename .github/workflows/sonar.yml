@@ -7,16 +7,27 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v2
-    - name: Set up JDK 17
-      uses: actions/setup-java@v2
-      with:
-        distribution: 'adopt'
-        java-version: '17'
-    - name: Build with Maven
-      run: mvn clean install
+     permissions:
+       id-token: write
+       contents: read
+       packages: write
+     steps:
+      - name: Checkout
+        uses: actions/checkout@v4.1.1
+
+      - name: Setup Java
+        uses: actions/setup-java@v4.0.0
+        with:
+          java-version: '17'
+          distribution: 'adopt'
+
+      - name: Run Test Cases
+        run: |
+          mvn clean install
+
+      - name: Dry Run Build
+        run: |
+          mvn --batch-mode deploy -Dmaven.deploy.skip=true -DskipTests
     - name: SonarQube Scan
       uses: sonarsource/sonarqube-scan-action@master
       with:
