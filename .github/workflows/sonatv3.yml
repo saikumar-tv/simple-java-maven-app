@@ -103,7 +103,7 @@ jobs:
           pwd
           ls
           cd target/sonar/
-          la -lrta
+          ls -lrta
           cat target/sonar/report-task.txt
 
       # - name: Upload SARIF Report
