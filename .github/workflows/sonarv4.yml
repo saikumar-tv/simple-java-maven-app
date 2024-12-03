@@ -1,0 +1,138 @@
+name: Sonar Example Scan Setup
+
+on:
+  workflow_dispatch:
+  push:
+
+jobs:
+  sonarqube:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v3
+
+      - name: Set up JDK
+        uses: actions/setup-java@v3
+        with:
+          distribution: 'adopt'
+          java-version: '17'
+
+      - name: Start SonarQube with Docker
+        run: |
+          docker run -d --name sonarqube -p 9000:9000 sonarqube:9-community
+          # Wait for SonarQube to be fully up and running
+          for i in {1..30}; do
+            if docker logs sonarqube  | grep "SonarQube is operational"; then
+              echo "SonarQube is initialised!";
+              break;
+            fi
+            echo "Waiting for SonarQube to start...";
+            sleep 5;
+          done
+          # curl -s http://localhost:9000
+          # for i in {1..30}; do
+          #   if docker logs sonarqube | grep "SonarQube is operational"; then
+          #     echo "2. SonarQube is ready!";
+          #     break;
+          #   fi
+          #   echo "Waiting for SonarQube to start...";
+          #   sleep 5;
+          # done
+
+      - name: Create SonarQube Token
+        id: generate_token
+        run: |
+          # Default SonarQube admin credentials
+          export SONARQUBE_URL="http://localhost:9000"
+          export SONARQUBE_ADMIN="admin"
+          export SONARQUBE_PASSWORD="admin"
+          
+          # Authenticate and create a token using SonarQube API
+          TOKEN_NAME="github-actions-token"
+          RESPONSE=$(curl  -u admin:admin --data 'name=dummy_token_name' -H 'Content-Type: application/x-www-form-urlencoded' http://localhost:9000/api/user_tokens/generate)
+          echo "$RESPONSE"
+          # Extract the token from the response
+          TOKEN=$(echo "$RESPONSE" | jq -r '.token')
+          
+          if [ "$TOKEN" = "null" ]; then
+            echo "Failed to generate SonarQube token!"
+            exit 1
+          fi
+          
+          echo "Generated Token: $TOKEN"
+          echo "SONAR_TOKEN=$TOKEN" >> $GITHUB_OUTPUT
+
+      # - name: Install Sonar Scanner
+      #   run: |
+      #     wget https://binaries.sonarsource.com/Distribution/sonar-scanner-cli/sonar-scanner-cli-4.8.0.2856-linux.zip
+      #     unzip sonar-scanner-cli-4.8.0.2856-linux.zip
+      #     mv sonar-scanner-4.8.0.2856-linux sonar-scanner
+
+      # - name: Run Sonar Scanner and Export SARIF
+      #   env:
+      #     SONAR_HOST_URL: http://localhost:9000
+      #   run: |
+      #     ./sonar-scanner/bin/sonar-scanner \
+      #       -Dsonar.projectKey=${{ github.repository_owner }}_${{ github.repository }} \
+      #       -Dsonar.sources=. \
+      #       -Dsonar.host.url=$SONAR_HOST_URL \
+      #       -Dsonar.login=$SONAR_TOKEN \
+      #       -Dsonar.report.export.path=sonar-report.sarif
+
+      # - name: Upload SARIF to GitHub Security
+      #   uses: github/codeql-action/upload-sarif@v2
+      #   with:
+      #     sarif_file: sonar-report.sarif
+
+      - name: SonarQube Analysis
+        env:
+          USER_NAME:  ${{github.actor}}
+          ACCESS_TOKEN: ${{secrets.MAVEN_TOKEN}}
+          SONAR_HOST_URL: http://localhost:9000
+          SONAR_TOKEN: ${{ steps.generate_token.outputs.SONAR_TOKEN }}
+        run: |
+          mvn sonar:sonar -DskipTests\
+          -Dsonar.projectName=${{ github.repository }} \
+          -Dsonar.projectKey=techverito \
+          -Dsonar.host.url=${{ env.SONAR_HOST_URL }} \
+          -Dsonar.login=${{ steps.generate_token.outputs.SONAR_TOKEN }}
+      
+      - name: setup python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.9'
+      
+      - name: install sonar-tools
+        run: pip install sonar-tools
+      
+      - name: export sarif report
+        run: |
+          export SONAR_HOST_URL=http://localhost:9000
+          export SONAR_TOKEN=${{ steps.generate_token.outputs.SONAR_TOKEN }}
+          sonar-findings-export -k techverito --format sarif >sonar-report.sarif
+
+      - name: check sarif file
+        run: cat sonar-report.sarif
+
+      - name: Upload SARIF Report
+        uses: github/codeql-action/upload-sarif@v2
+        with:
+          sarif_file: sonar-report.sarif
+
+      # - name: SonarQube Quality Gate check
+      #   id: sonarqube-quality-gate-check
+      #   continue-on-error: true
+      #   uses: sonarsource/sonarqube-quality-gate-action@master
+      #   with:
+      #     scanMetadataReportFile: target/sonar/report-task.txt
+      #   timeout-minutes: 5
+      #   env:
+      #     SONAR_TOKEN: ${{ steps.generate_token.output.SONAR_TOKEN }}
+      #     SONAR_HOST_URL: http://localhost:9000
+
+      - name: Stop and Remove SonarQube Container
+        if: always()
+        run: |
+          docker stop sonarqube
+          docker rm sonarqube
