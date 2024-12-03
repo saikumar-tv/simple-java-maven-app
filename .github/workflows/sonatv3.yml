@@ -104,7 +104,7 @@ jobs:
           ls
           cd target/sonar/
           ls -lrta
-          cat target/sonar/report-task.txt
+          cat report-task.txt
 
       # - name: Upload SARIF Report
       #   uses: github/codeql-action/upload-sarif@v2
